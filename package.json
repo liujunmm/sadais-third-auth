@@ -1,6 +1,6 @@
 {
   "name": "sadais-third-auth",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "sadais uni-app H5 第三方授权通用逻辑（飞书等）：授权跳转、回跳换取登录态、token 过期重授权、退出重授权",
   "main": "src/index.js",
   "repository": {

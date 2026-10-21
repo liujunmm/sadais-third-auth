@@ -1,6 +1,7 @@
 /**
  * 退出登录后重授权
  */
+import { getThirdAuthRedirectUrl } from './storage'
 
 /**
  * 第三方授权登录用户退出登录：清除登录态后回到引导页重新授权
