@@ -8,7 +8,7 @@ import { getConfig } from './config'
  * @param {Object} params 授权参数：tenantid 企业码、type 授权类型、productcode 产品编码
  * @returns {Promise} 接口响应数据
  */
-export const apiGetThirdAuthorizeUrl = async params => {
+export const apiGetThirdAuthorizeUrl = async (params) => {
   const { request } = getConfig()
   const { data } = await request.get('/api/third/auth/v1/authorize/authorizeurl', { params })
   return data
@@ -19,7 +19,7 @@ export const apiGetThirdAuthorizeUrl = async params => {
  * @param {Object} params 参数：sessionid 授权会话 ID
  * @returns {Promise} 接口响应数据
  */
-export const apiGetThirdLoginBySessionId = async params => {
+export const apiGetThirdLoginBySessionId = async (params) => {
   const { request } = getConfig()
   const { data } = await request.get('/api/third/auth/v1/authorize/getbysessionid', { params })
   return data

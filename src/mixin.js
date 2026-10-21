@@ -72,7 +72,7 @@ export default {
       this.$loading()
       const { data, head } = await apiGetThirdAuthorizeUrl(this.getThirdAuthParams(params))
       this.$hideLoading()
-      if (head.ret !== this.$consts.RET_CODE.SUCCESS || !data?.authorizeUrl) {
+      if (head.ret !== this.$consts.RET_CODE.SUCCESS || !data || !data.authorizeUrl) {
         removeRedirectFlag()
         removeThirdAuthParams()
         await this.$toast(head.msg)

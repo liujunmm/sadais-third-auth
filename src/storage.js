@@ -12,7 +12,7 @@ const THIRD_AUTH_REDIRECT_FLAG = 'THIRD_AUTH_REDIRECT_FLAG' // 授权跳转防�
  * 用途：token 过期后重新走第三方授权（授权回跳仅携带 sessionid，无入口参数）
  * @param {Object} thirdAuthParams 授权入口参数（tenantid、type、productcode）
  */
-export const saveThirdAuthParams = thirdAuthParams => {
+export const saveThirdAuthParams = (thirdAuthParams) => {
   return setStorage(THIRD_AUTH_PARAMS, thirdAuthParams)
 }
 
@@ -58,10 +58,10 @@ export const removeRedirectFlag = () => {
  * @returns {String} 有效的重新授权地址，非第三方授权登录时返回空字符串
  */
 export const getThirdAuthRedirectUrl = () => {
-  const thirdAuthParams = getThirdAuthParams()
-  if (!thirdAuthParams?.type || !thirdAuthParams?.tenantid) return ''
+  const thirdAuthParams = getThirdAuthParams() || {}
+  if (!thirdAuthParams.type || !thirdAuthParams.tenantid) return ''
   const query = Object.keys(thirdAuthParams)
-    .map(key => `${key}=${encodeURIComponent(thirdAuthParams[key])}`)
+    .map((key) => `${key}=${encodeURIComponent(thirdAuthParams[key])}`)
     .join('&')
   return `/pages/guide/index?${query}`
 }

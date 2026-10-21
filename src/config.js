@@ -14,7 +14,7 @@ let hostConfig = {
  * 初始化第三方授权宿主配置
  * @param {Object} options 宿主配置（request、onLoginSuccess 必填）
  */
-export const initConfig = options => {
+export const initConfig = (options) => {
   hostConfig = { ...hostConfig, ...options }
 }
 
