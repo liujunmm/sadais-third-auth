@@ -1,9 +1,8 @@
 /**
- * guide 页第三方授权 mixin
- * 提供授权回跳处理与自动发起授权两个入口方法，其余为内部实现方法
- * 依赖宿主通过 Vue.use(thirdAuth, options) 注入 request 与登录态处理回调
+ * H5 第三方授权入口及回调，客户端差异由授权适配器处理。
  */
-import { getUserInfo } from 'sadais-core/core/auth'
+import { getConsts } from 'sadais-core/consts'
+import { getUserInfo, logout } from 'sadais-core/core/auth'
 import { apiGetThirdAuthorizeUrl, apiGetThirdLoginBySessionId } from './api'
 import {
   saveThirdAuthParams,
@@ -13,153 +12,159 @@ import {
   hasRedirectFlag,
   removeRedirectFlag
 } from './storage'
+import { getAuthProvider, isAuthClient, resolveAuthorizeUrl } from './providers'
 import { getConfig } from './config'
 
 export default {
+  data() {
+    return {
+      thirdAuthPending: false,
+      thirdAuthCallbackPending: false
+    }
+  },
   methods: {
-    /**
-     * 处理第三方授权回跳：通过 sessionid 换取登录数据并保存登录态后进入首页
-     * 授权回跳仅携带 sessionid，入口参数已在发起授权时存入本地
-     * @param {Object} params 页面启动参数（授权回跳时仅携带 sessionid）
-     * @returns {Promise<Boolean>} 是否已按授权回跳处理
-     */
-    async handleThirdAuthCallback(params) {
+    async handleThirdAuthCallback(params = {}) {
       if (!params.sessionid) return false
-      // 回跳后立即清除授权跳转标记，保证下次可正常发起授权
-      removeRedirectFlag()
-      this.$loading()
+      if (this.thirdAuthCallbackPending) return true
+      this.thirdAuthCallbackPending = true
+      let isSavingLogin = false
+      let isLoginSaved = false
+      let failureMessage = '授权登录失败，请重新进入应用'
       try {
-        const { data, head } = await apiGetThirdLoginBySessionId({ sessionid: params.sessionid })
-        if (head.ret !== this.$consts.RET_CODE.SUCCESS) {
-          await this.$toast(head.msg)
-          removeThirdAuthParams()
-          this.navigateAwayAfterAuth()
+        const authParams = getThirdAuthParams()
+        if (!authParams || !authParams.tenantid || !authParams.type) {
+          await this.handleThirdAuthFailure({
+            message: '授权上下文已失效，请从授权客户端重新进入应用'
+          })
           return true
         }
-        const { onLoginSuccess } = getConfig()
-        if (onLoginSuccess) {
-          onLoginSuccess(data)
+        const clientError = this.getThirdAuthClientError(authParams.type)
+        if (clientError) {
+          await this.handleThirdAuthFailure({ message: clientError })
+          return true
         }
-        this.navigateAfterLogin()
+        this.$loading()
+        try {
+          const result = await apiGetThirdLoginBySessionId({ sessionid: params.sessionid })
+          if (!result || !result.head || result.head.ret !== this.$consts.RET_CODE.SUCCESS) {
+            failureMessage = (result && result.head && result.head.msg) || failureMessage
+            throw new Error('Third-party login failed')
+          }
+          isSavingLogin = true
+          await getConfig().onLoginSuccess(result.data)
+          isSavingLogin = false
+          isLoginSaved = true
+        } finally {
+          this.$hideLoading()
+        }
+        removeRedirectFlag()
+        failureMessage = '登录成功，页面跳转失败，请重试'
+        await this.navigateAfterLogin()
       } catch (error) {
-        // 请求层异常（网络/拦截器抛错）兜底，避免 loading 卡死与静默失败
-        console.error('第三方授权回跳处理异常：', error)
-        removeThirdAuthParams()
-        this.navigateAwayAfterAuth()
-        return true
+        // 保存钩子可能只写入了部分登录态，失败时不得带着残缺状态进入首页。
+        if (isSavingLogin) logout(undefined, false)
+        await this.handleThirdAuthFailure({ message: failureMessage, preserveParams: isLoginSaved })
       } finally {
-        this.$hideLoading()
+        this.thirdAuthCallbackPending = false
       }
       return true
     },
-    /**
-     * 判断是否为第三方应用入口，未登录时自动发起授权
-     * @param {Object} params 页面启动参数（携带 type、tenantid 等授权入口参数）
-     * @returns {Boolean} 是否已发起授权跳转
-     */
-    tryThirdAuth(params) {
+    tryThirdAuth(params = {}) {
       if (!params.type || !params.tenantid) return false
-      if (getUserInfo()) return false
-      // 已发起过授权但回跳未成功，不再重复发起，避免死循环
-      if (hasRedirectFlag()) {
-        removeRedirectFlag()
-        console.warn('第三方授权回跳异常，页面启动参数：', params)
-        this.$toast('授权信息缺失，请重新进入应用')
-        return false
-      }
+      if (isAuthClient(params.type) && getUserInfo()) return false
       this.handleThirdAuth(params)
       return true
     },
-    /**
-     * 请求第三方授权地址并整页跳转授权页
-     * @param {Object} params 页面启动参数
-     */
-    async handleThirdAuth(params) {
-      setRedirectFlag()
-      // 记录第三方授权入口参数，用于 token 过期后重新走第三方授权
-      saveThirdAuthParams(this.getThirdAuthParams(params))
-      this.$loading()
+    async handleThirdAuth(params = {}) {
+      if (this.thirdAuthPending) return
+      this.thirdAuthPending = true
       try {
-        const { data, head } = await apiGetThirdAuthorizeUrl(this.getThirdAuthParams(params))
-        if (head.ret !== this.$consts.RET_CODE.SUCCESS || !data || !data.authorizeUrl) {
-          removeRedirectFlag()
-          removeThirdAuthParams()
-          await this.$toast(head.msg)
-          return this.navigateAwayAfterAuth()
+        const authParams = this.getThirdAuthParams(params)
+        if (!authParams.tenantid || !authParams.type || !authParams.productcode) {
+          return await this.handleThirdAuthFailure({ message: '授权入口参数无效，请重新进入应用' })
         }
-        this.navigateToAuthorizeUrl(data.authorizeUrl)
+        const clientError = this.getThirdAuthClientError(authParams.type)
+        if (clientError) {
+          return await this.handleThirdAuthFailure({ message: clientError })
+        }
+        if (hasRedirectFlag(authParams)) {
+          // 同一次异常回跳不自动重试；重新进入的用户可明确选择再次授权。
+          const retry = await new Promise((resolve, reject) => {
+            uni.showModal({
+              title: '授权未完成',
+              content: '上次授权未完成，是否重新授权？',
+              confirmText: '重新授权',
+              success: result => resolve(result.confirm),
+              fail: reject
+            })
+          })
+          if (!retry) {
+            return await this.handleThirdAuthFailure({ message: '已取消授权' })
+          }
+        }
+        saveThirdAuthParams(authParams)
+        let result
+        this.$loading()
+        try {
+          result = await apiGetThirdAuthorizeUrl(authParams)
+        } finally {
+          this.$hideLoading()
+        }
+        if (
+          !result ||
+          !result.head ||
+          result.head.ret !== this.$consts.RET_CODE.SUCCESS ||
+          !result.data ||
+          !result.data.authorizeUrl
+        ) {
+          return await this.handleThirdAuthFailure({
+            message: (result && result.head && result.head.msg) || '无法获取授权地址，请稍后重试'
+          })
+        }
+        setRedirectFlag(authParams)
+        this.navigateToAuthorizeUrl(result.data.authorizeUrl, authParams.type)
       } catch (error) {
-        // 请求层异常（网络/拦截器抛错）兜底，避免 loading 卡死与静默失败
-        console.error('第三方授权发起异常：', error)
-        removeRedirectFlag()
-        removeThirdAuthParams()
-        await this.$toast('授权请求异常，请稍后重试')
-        return this.navigateAwayAfterAuth()
+        await this.handleThirdAuthFailure({ message: '授权请求异常，请稍后重试' })
       } finally {
-        this.$hideLoading()
+        this.thirdAuthPending = false
       }
     },
-    /**
-     * 汇总第三方授权公共参数（透传页面路由参数）
-     * @param {Object} params 页面启动参数
-     * @returns {Object} 授权接口所需参数
-     */
     getThirdAuthParams(params) {
       return {
         tenantid: params.tenantid,
-        type: params.type,
-        productcode: params.productcode
+        type: typeof params.type === 'string' ? params.type.toUpperCase() : '',
+        productcode: params.productcode || getConsts('NAME')
       }
     },
-    /**
-     * 是否运行在飞书客户端内
-     * @returns {Boolean} 是否飞书客户端环境
-     */
-    isFeishuClient() {
-      if (typeof window === 'undefined') return false
-      return /lark|feishu/i.test(window.navigator.userAgent)
+    getThirdAuthClientError(type) {
+      const provider = getAuthProvider(type)
+      if (!provider) return '暂不支持该授权类型'
+      return isAuthClient(type) ? '' : `请在${provider.clientName}内打开应用进行授权`
     },
-    /**
-     * 跳转第三方授权地址
-     * applink 用于从飞书客户端外部拉起飞书，飞书客户端内 webview 无法通过它拉起飞书，
-     * 需解析出 applink 内包裹的真实授权地址直接打开；非 applink 地址或非飞书环境原样跳转
-     * @param {String} authorizeUrl 授权地址（可能是 applink 包裹的地址）
-     */
-    navigateToAuthorizeUrl(authorizeUrl) {
-      if (typeof window === 'undefined') return
-      if (this.isFeishuClient() && authorizeUrl.includes('applink.feishu.cn')) {
-        const targetUrl = new URL(authorizeUrl).searchParams.get('url')
-        if (targetUrl) {
-          window.location.href = targetUrl
-          return
-        }
+    navigateToAuthorizeUrl(authorizeUrl, type) {
+      const authType = type || (getThirdAuthParams() || {}).type
+      window.location.href = resolveAuthorizeUrl(authType, authorizeUrl)
+    },
+    async handleThirdAuthFailure({ message, preserveParams = false }) {
+      removeRedirectFlag()
+      if (!preserveParams) removeThirdAuthParams()
+      await this.$toast(message)
+      try {
+        await this.navigateAwayAfterAuth()
+      } catch (error) {
+        await this.$toast('页面跳转失败，请重新进入应用')
       }
-      window.location.href = authorizeUrl
     },
-    /**
-     * 登录成功后的跳转：优先使用宿主配置回调，默认回到工程首页
-     */
     navigateAfterLogin() {
       const { redirectAfterLogin } = getConfig()
-      if (redirectAfterLogin) {
-        return redirectAfterLogin()
-      }
-      this.$pi.navi.reLaunch(this.$consts.get('HOME_PATH'))
+      if (redirectAfterLogin) return redirectAfterLogin()
+      return this.$pi.navi.reLaunch(this.$consts.get('HOME_PATH'))
     },
-    /**
-     * 授权流程失败后的兜底跳转：优先使用宿主配置回调，
-     * 默认未登录进工程登录页、已登录进工程首页
-     */
     navigateAwayAfterAuth() {
       const { onAuthFallback } = getConfig()
-      if (onAuthFallback) {
-        return onAuthFallback()
-      }
-      if (getUserInfo()) {
-        this.$pi.navi.switchTab(this.$consts.get('HOME_PATH'))
-        return
-      }
-      this.$pi.navi.redirectTo(this.$consts.get('LOGIN_PATH'))
+      if (onAuthFallback) return onAuthFallback()
+      if (getUserInfo()) return this.$pi.navi.switchTab(this.$consts.get('HOME_PATH'))
+      return this.$pi.navi.redirectTo(this.$consts.get('LOGIN_PATH'))
     }
   }
 }

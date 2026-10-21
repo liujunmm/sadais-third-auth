@@ -1,7 +1,9 @@
 /**
  * 退出登录后重授权
  */
-import { getThirdAuthRedirectUrl } from './storage'
+import { getThirdAuthParams, getThirdAuthRedirectUrl } from './storage'
+import { isAuthClient } from './providers'
+import { logout } from 'sadais-core/core/auth'
 
 /**
  * 第三方授权登录用户退出登录：清除登录态后回到引导页重新授权
@@ -11,8 +13,10 @@ import { getThirdAuthRedirectUrl } from './storage'
  * @returns {Boolean} 是否已按第三方授权回引导页重新授权
  */
 export const reauthAfterLogout = ({ clearAuthState } = {}) => {
+  if (!isAuthClient((getThirdAuthParams() || {}).type)) return false
   const redirectUrl = getThirdAuthRedirectUrl()
   if (!redirectUrl) return false
+  logout(undefined, false)
   if (clearAuthState) {
     clearAuthState()
   }

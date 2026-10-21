@@ -5,7 +5,7 @@
  */
 import { initConfig } from './config'
 import thirdAuthMixin from './mixin'
-import { handleTokenExpired } from './token'
+import { handleTokenExpired, installTokenFallback } from './token'
 import { reauthAfterLogout } from './logout'
 
 /**
@@ -16,9 +16,11 @@ import { reauthAfterLogout } from './logout'
  * @param {Function} options.onLoginSuccess 登录数据保存回调，必填
  * @param {Function} options.onAuthFallback 授权流程失败兜底跳转回调，可选
  * @param {Function} options.redirectAfterLogin 登录成功后跳转回调，可选
+ * @param {Object} options.providers 按授权 type 注册的客户端适配器，可选
  */
 const install = (Vue, options = {}) => {
   initConfig(options)
+  installTokenFallback()
 }
 
 export { thirdAuthMixin, handleTokenExpired, reauthAfterLogout }
