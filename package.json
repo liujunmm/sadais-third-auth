@@ -1,0 +1,35 @@
+{
+  "name": "sadais-third-auth",
+  "version": "0.1.0",
+  "description": "sadais uni-app H5 第三方授权通用逻辑（飞书等）：授权跳转、回跳换取登录态、token 过期重授权、退出重授权",
+  "main": "src/index.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/liujunmm/sadais-third-auth.git"
+  },
+  "homepage": "https://github.com/liujunmm/sadais-third-auth#readme",
+  "bugs": {
+    "url": "https://github.com/liujunmm/sadais-third-auth/issues"
+  },
+  "keywords": [
+    "sadais",
+    "third-auth",
+    "feishu",
+    "oauth",
+    "uni-app",
+    "h5"
+  ],
+  "license": "MIT",
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "dependencies": {
+    "sadais-core": "^2.0.2"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  }
+}
