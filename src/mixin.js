@@ -28,19 +28,28 @@ export default {
       // 回跳后立即清除授权跳转标记，保证下次可正常发起授权
       removeRedirectFlag()
       this.$loading()
-      const { data, head } = await apiGetThirdLoginBySessionId({ sessionid: params.sessionid })
-      this.$hideLoading()
-      if (head.ret !== this.$consts.RET_CODE.SUCCESS) {
-        await this.$toast(head.msg)
+      try {
+        const { data, head } = await apiGetThirdLoginBySessionId({ sessionid: params.sessionid })
+        if (head.ret !== this.$consts.RET_CODE.SUCCESS) {
+          await this.$toast(head.msg)
+          removeThirdAuthParams()
+          this.navigateAwayAfterAuth()
+          return true
+        }
+        const { onLoginSuccess } = getConfig()
+        if (onLoginSuccess) {
+          onLoginSuccess(data)
+        }
+        this.navigateAfterLogin()
+      } catch (error) {
+        // 请求层异常（网络/拦截器抛错）兜底，避免 loading 卡死与静默失败
+        console.error('第三方授权回跳处理异常：', error)
         removeThirdAuthParams()
         this.navigateAwayAfterAuth()
         return true
+      } finally {
+        this.$hideLoading()
       }
-      const { onLoginSuccess } = getConfig()
-      if (onLoginSuccess) {
-        onLoginSuccess(data)
-      }
-      this.navigateAfterLogin()
       return true
     },
     /**
@@ -70,15 +79,25 @@ export default {
       // 记录第三方授权入口参数，用于 token 过期后重新走第三方授权
       saveThirdAuthParams(this.getThirdAuthParams(params))
       this.$loading()
-      const { data, head } = await apiGetThirdAuthorizeUrl(this.getThirdAuthParams(params))
-      this.$hideLoading()
-      if (head.ret !== this.$consts.RET_CODE.SUCCESS || !data || !data.authorizeUrl) {
+      try {
+        const { data, head } = await apiGetThirdAuthorizeUrl(this.getThirdAuthParams(params))
+        if (head.ret !== this.$consts.RET_CODE.SUCCESS || !data || !data.authorizeUrl) {
+          removeRedirectFlag()
+          removeThirdAuthParams()
+          await this.$toast(head.msg)
+          return this.navigateAwayAfterAuth()
+        }
+        this.navigateToAuthorizeUrl(data.authorizeUrl)
+      } catch (error) {
+        // 请求层异常（网络/拦截器抛错）兜底，避免 loading 卡死与静默失败
+        console.error('第三方授权发起异常：', error)
         removeRedirectFlag()
         removeThirdAuthParams()
-        await this.$toast(head.msg)
+        await this.$toast('授权请求异常，请稍后重试')
         return this.navigateAwayAfterAuth()
+      } finally {
+        this.$hideLoading()
       }
-      this.navigateToAuthorizeUrl(data.authorizeUrl)
     },
     /**
      * 汇总第三方授权公共参数（透传页面路由参数）
